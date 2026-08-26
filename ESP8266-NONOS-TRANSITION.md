@@ -7,7 +7,8 @@ the normal ESP8266 Kickstart image.
 The device profile supplies the physical flash size, both slot ranges, and the
 virtual address and capacity of flash-mapped code. The component generates the
 linker script from those values. It does not assume a particular vendor or
-firmware version.
+firmware version. The script preserves Arduino's `app_entry`, which initializes
+the continuation context and UMM heap before entering the non-OS SDK.
 
 ```yaml
 external_components:
@@ -29,7 +30,7 @@ kickstart_slot_control:
     - offset: 0x001000
       size: 0x100000
     - offset: 0x101000
-      size: 0x0fb000
+      size: 0x0fa000
 ```
 
 The example values demonstrate the schema; use values verified from the target
