@@ -22,6 +22,7 @@ class KickstartSlotControl : public AsyncWebHandler, public Component {
 
  protected:
   uint8_t current_slot_() const;
+  bool validate_v2_(const Slot &slot) const;
   void send_status_(AsyncWebServerRequest *request);
   void boot_other_(AsyncWebServerRequest *request);
   web_server_base::WebServerBase *server_;

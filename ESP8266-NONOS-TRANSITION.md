@@ -36,7 +36,9 @@ The example values demonstrate the schema; use values verified from the target
 bootloader and stock images. `kickstart_slot_control` is optional. If it is
 omitted, no slot-status or boot-switch route is compiled. If it is present,
 authenticated `POST /hub/boot_other` with `confirm=boot-other` asks the
-Espressif SDK to select the other slot after checking its V2 magic.
+Espressif SDK to select the other slot after validating its complete V2 image,
+including both headers, segment bounds, segment checksum, and appended SDK
+CRC32.
 
 The component does not package the ELF as a V2 image and does not implement a
 vendor's update protocol. Those operations belong to a separate image builder
