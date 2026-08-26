@@ -37,18 +37,36 @@ static bool flashRead(uint32_t offset, uint8_t *buffer, size_t length) {
 #endif
 }
 
+static bool parseU32(const AsyncWebParameter *parameter, uint32_t *value) {
+  const String &text = parameter->value();
+  if (text.length() == 0)
+    return false;
+  char *end = nullptr;
+  const unsigned long parsed = strtoul(text.c_str(), &end, 0);
+  if (end == text.c_str() || *end != '\0')
+    return false;
+  *value = static_cast<uint32_t>(parsed);
+  return true;
+}
+
 void HubAPI::handleRequest(AsyncWebServerRequest *req) {
   if (req->url().substring(4) == "/flash_read") {
     uint32_t offset, length;
 
     if (req->hasParam("offset")) {
-      offset = req->getParam("offset")->value().toInt();
+      if (!parseU32(req->getParam("offset"), &offset)) {
+        req->send(400, "application/json", "{\"error\":\"invalid_offset\"}");
+        return;
+      }
     } else {
       offset = 0;
     }
 
     if (req->hasParam("length")) {
-      length = req->getParam("length")->value().toInt();
+      if (!parseU32(req->getParam("length"), &length)) {
+        req->send(400, "application/json", "{\"error\":\"invalid_length\"}");
+        return;
+      }
     } else {
       length = flashLength();
     }
@@ -79,7 +97,6 @@ void HubAPI::handleRequest(AsyncWebServerRequest *req) {
     return;
   }
 
-EMPTY:
 #ifdef LT_BANNER_STR
   req->send(200, "text/plain", LT_BANNER_STR);
 #elif defined(USE_LIBRETINY)

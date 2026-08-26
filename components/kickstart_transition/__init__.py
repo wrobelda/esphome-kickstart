@@ -1,65 +1,16 @@
-from pathlib import Path
-
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import web_server_base
-from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
-from esphome.const import CONF_ID, CONF_OFFSET, CONF_SIZE
 from esphome.core import CORE
 from esphome.helpers import write_file_if_changed
 
-DEPENDENCIES = ["esp8266", "web_server"]
-AUTO_LOAD = ["web_server_base"]
-
-CONF_FLASH_SIZE = "flash_size"
+DEPENDENCIES = ["esp8266"]
 CONF_IROM_VMA = "irom_vma"
 CONF_IROM_SIZE = "irom_size"
-CONF_SLOTS = "slots"
-CONF_ALLOW_BOOT_OTHER = "allow_boot_other"
-
-transition_ns = cg.esphome_ns.namespace("kickstart_transition")
-KickstartTransition = transition_ns.class_("KickstartTransition", cg.Component)
-
-SLOT_SCHEMA = cv.Schema(
+CONFIG_SCHEMA = cv.Schema(
     {
-        cv.Required(CONF_OFFSET): cv.positive_int,
-        cv.Required(CONF_SIZE): cv.positive_int,
+        cv.Required(CONF_IROM_VMA): cv.positive_int,
+        cv.Required(CONF_IROM_SIZE): cv.positive_int,
     }
-)
-
-
-def _validate_layout(config):
-    slots = sorted(config[CONF_SLOTS], key=lambda slot: slot[CONF_OFFSET])
-    if len(slots) != 2:
-        raise cv.Invalid("the ESP8266 non-OS SDK backend currently requires two slots")
-    previous_end = 0
-    for slot in slots:
-        offset = slot[CONF_OFFSET]
-        end = offset + slot[CONF_SIZE]
-        if offset < previous_end:
-            raise cv.Invalid("slot ranges overlap")
-        if end > config[CONF_FLASH_SIZE]:
-            raise cv.Invalid("slot range exceeds flash_size")
-        previous_end = end
-    config[CONF_SLOTS] = slots
-    return config
-
-
-CONFIG_SCHEMA = cv.All(
-    cv.Schema(
-        {
-            cv.GenerateID(): cv.declare_id(KickstartTransition),
-            cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(
-                web_server_base.WebServerBase
-            ),
-            cv.Required(CONF_FLASH_SIZE): cv.positive_int,
-            cv.Required(CONF_IROM_VMA): cv.positive_int,
-            cv.Required(CONF_IROM_SIZE): cv.positive_int,
-            cv.Required(CONF_SLOTS): cv.ensure_list(SLOT_SCHEMA),
-            cv.Optional(CONF_ALLOW_BOOT_OTHER, default=False): cv.boolean,
-        }
-    ).extend(cv.COMPONENT_SCHEMA),
-    _validate_layout,
 )
 
 
@@ -91,11 +42,3 @@ async def to_code(config):
     linker_script.parent.mkdir(parents=True, exist_ok=True)
     write_file_if_changed(linker_script, _linker_script(config))
     cg.add_platformio_option("board_build.ldscript", str(linker_script))
-
-    server = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
-    var = cg.new_Pvariable(config[CONF_ID], server)
-    await cg.register_component(var, config)
-    cg.add(var.set_flash_size(config[CONF_FLASH_SIZE]))
-    cg.add(var.set_allow_boot_other(config[CONF_ALLOW_BOOT_OTHER]))
-    for index, slot in enumerate(config[CONF_SLOTS]):
-        cg.add(var.set_slot(index, slot[CONF_OFFSET], slot[CONF_SIZE]))

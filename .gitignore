@@ -159,6 +159,10 @@ fabric.properties
 
 .idea/*
 
+# Python component validation caches
+__pycache__/
+*.pyc
+
 !.idea/codeStyles
 !.idea/runConfigurations
 

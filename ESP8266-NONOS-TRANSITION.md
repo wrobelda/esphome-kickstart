@@ -15,25 +15,28 @@ external_components:
   components:
     - hub_api
     - kickstart_transition
+    - kickstart_slot_control
 
 hub_api:
 
 kickstart_transition:
-  flash_size: 0x200000
   irom_vma: 0x40200000
   irom_size: 0x100000
+
+kickstart_slot_control:
+  flash_size: 0x200000
   slots:
     - offset: 0x001000
       size: 0x100000
     - offset: 0x101000
       size: 0x0fb000
-  allow_boot_other: false
 ```
 
 The example values demonstrate the schema; use values verified from the target
-bootloader and stock images. `allow_boot_other` is disabled by default. When it
-is enabled, authenticated `POST /hub/boot_other` with `confirm=boot-other`
-asks the Espressif SDK to select the other slot after checking its V2 magic.
+bootloader and stock images. `kickstart_slot_control` is optional. If it is
+omitted, no slot-status or boot-switch route is compiled. If it is present,
+authenticated `POST /hub/boot_other` with `confirm=boot-other` asks the
+Espressif SDK to select the other slot after checking its V2 magic.
 
 The component does not package the ELF as a V2 image and does not implement a
 vendor's update protocol. Those operations belong to a separate image builder
