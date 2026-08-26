@@ -5,6 +5,8 @@ substitutions:
 packages:
   base: !include kickstart-base.yaml
 
+hub_api:
+
 esp8266:
   board: esp01_1m
 
