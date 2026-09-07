@@ -103,6 +103,8 @@ bool Esp8266NonosV2SlotControl::validate_v2_(const esp8266_nonos_v2_to_eboot_v1:
   const uint8_t mode = outer[2];
   const uint8_t size_frequency = outer[3];
   const uint32_t entrypoint = read_u32_le(outer + 4);
+  if (entrypoint < 0x40100000 || entrypoint >= 0x40110000)
+    return false;
   if (read_u32_le(outer + 8) != 0)
     return false;
 

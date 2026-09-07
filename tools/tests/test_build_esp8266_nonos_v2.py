@@ -102,6 +102,10 @@ class KickstartOtaTest(unittest.TestCase):
                 expected_entrypoint=0x401000C0,
             )
 
+    def test_rejects_entrypoint_outside_iram(self) -> None:
+        with self.assertRaisesRegex(ValueError, "outside ESP8266 IRAM"):
+            self.validate(make_v2_image(entrypoint=0x40200000))
+
     def test_rejects_image_larger_than_target_slot(self) -> None:
         image = make_v2_image()
         with self.assertRaisesRegex(ValueError, "slot limit"):

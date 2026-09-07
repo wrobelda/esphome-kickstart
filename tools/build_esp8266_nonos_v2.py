@@ -122,6 +122,8 @@ def validate_user_bin(
         raise ValueError(
             f"V2 irom address field is {int(result['irom_address']):#x}, expected 0"
         )
+    if not 0x40100000 <= int(result["entrypoint"]) < 0x40110000:
+        raise ValueError("V2 image entry point is outside ESP8266 IRAM")
     if expected_entrypoint is not None and result["entrypoint"] != expected_entrypoint:
         raise ValueError(
             f"V2 image entry point is {int(result['entrypoint']):#x}; expected "
