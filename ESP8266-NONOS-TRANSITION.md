@@ -83,6 +83,11 @@ final-image upload on its own. The component:
 4. Writes the eboot sector at address zero last, then reboots into the normal
    ESPHome layout.
 
+Set `ota: false` in the transition configuration. Configuration validation
+rejects ESPHome's standard OTA component because that OTA backend assumes the
+eboot V1 layout is already active. Enable standard ESPHome OTA in the final
+eboot V1 configuration instead.
+
 Use the same native API encryption key in the transition and final
 configurations. Home Assistant can then reuse the existing device-registry
 entry even when the final configuration changes the node and friendly names.

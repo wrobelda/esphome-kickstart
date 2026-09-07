@@ -65,6 +65,12 @@ def _final_validate(config):
         raise cv.Invalid(
             "esp8266_nonos_v2_to_eboot_v1 requires authenticated web_server access"
         )
+    ota_platforms = full_config.get("ota", [])
+    if any(platform.get("platform") != "web_server" for platform in ota_platforms):
+        raise cv.Invalid(
+            "esp8266_nonos_v2_to_eboot_v1 is incompatible with standard ESPHome OTA; "
+            "set ota: false and use /hub/migrate"
+        )
     return config
 
 
