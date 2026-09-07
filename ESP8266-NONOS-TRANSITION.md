@@ -58,6 +58,12 @@ at flash address zero and extends through the lower application area, so it
 must be installed while the transition application executes from the upper
 slot.
 
+Relocation must run before ESPHome initializes networking. An earlier
+implementation scheduled it after normal setup; the tested lower-slot image
+then raised `LoadProhibit` while ESPHome reconfigured Wi-Fi and lwIP state
+inherited from the vendor firmware. The working implementation relocates at
+hardware setup priority and reboots before Wi-Fi setup.
+
 ## Install the final ESPHome image
 
 `esp8266_nonos_v2_to_eboot_v1` exposes authenticated `GET` and `POST` requests at
