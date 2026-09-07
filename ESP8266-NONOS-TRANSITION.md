@@ -82,6 +82,15 @@ Use the same native API encryption key in the transition and final
 configurations. Home Assistant can then reuse the existing device-registry
 entry even when the final configuration changes the node and friendly names.
 
+The migration endpoint can also be driven without a browser. This command
+prompts for the configured web-server password:
+
+```sh
+curl --digest --user WEB_USERNAME --fail-with-body \
+  --form firmware=@firmware.factory.bin \
+  'http://KICKSTART_ADDRESS/hub/migrate?confirm=replace-vendor-bootloader'
+```
+
 The component also intercepts `/update` and rejects normal ESPHome web OTA.
 ESPHome's captive portal otherwise enables that route even when
 `web_server.ota` is false, but its OTA backend assumes that eboot already owns
