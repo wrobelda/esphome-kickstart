@@ -112,3 +112,20 @@ a vendor's update protocol. Those operations belong to a separate image
 builder and vendor installation profile. `tools/build_esp8266_nonos_v2.py`
 packages and validates the component's ELF; the vendor profile supplies its
 flash mode, size map, frequency, entry symbol, IROM mapping, and slot limit.
+
+## Relationship to the normal Kickstart handoff
+
+The standard Kickstart images enable ESPHome OTA and `dashboard_import`. Their
+running layout is compatible with the final ESPHome image, so Device Builder
+can import the selected configuration and install it through ordinary ESPHome
+OTA.
+
+This transition component handles a different case: the running vendor V2
+layout is incompatible with the final eboot V1 image. Its current dedicated
+endpoint keeps the unsafe ordinary OTA backend unavailable. A future
+Kickstart-provided OTA backend should accept the normal authenticated ESPHome
+OTA request, detect the running and incoming layouts, and perform this
+migration internally; users should not need to select a special route.
+Implement and demonstrate that handoff in Kickstart first. Whether ESPHome
+core should later absorb the migration backend, or the wider Kickstart
+project, is a separate design decision for both projects.
