@@ -13,7 +13,7 @@ extern "C" {
 
 namespace esphome::esp8266_nonos_v2_to_eboot_v1 {
 
-static const char *const TAG = "kickstart.migration";
+static const char *const TAG = "esp8266_nonos_v2_to_eboot_v1";
 static const char *const PATH = "/hub/migrate";
 static const char *const BLOCKED_OTA_PATH = "/update";
 static const char *const CONFIRMATION = "replace-vendor-bootloader";

@@ -38,7 +38,7 @@ def make_v2_image(
     return bytes(image)
 
 
-class KickstartOtaTest(unittest.TestCase):
+class Esp8266NonosV2ImageTest(unittest.TestCase):
     def validate(self, image: bytes):
         return MODULE.validate_user_bin(
             image,

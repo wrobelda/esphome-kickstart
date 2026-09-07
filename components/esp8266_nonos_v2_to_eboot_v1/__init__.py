@@ -103,7 +103,7 @@ async def to_code(config):
     for index, slot in enumerate(config[CONF_SLOTS]):
         cg.add(var.set_slot(index, slot[CONF_OFFSET], slot[CONF_SIZE]))
 
-    linker_script = CORE.relative_build_path("esp8266-nonos-to-eboot.ld")
+    linker_script = CORE.relative_build_path("esp8266-nonos-v2-to-eboot-v1.ld")
     linker_script.parent.mkdir(parents=True, exist_ok=True)
     write_file_if_changed(linker_script, _linker_script(config))
     cg.add_platformio_option("board_build.ldscript", str(linker_script))
