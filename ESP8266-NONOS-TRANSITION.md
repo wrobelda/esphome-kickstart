@@ -31,6 +31,7 @@ esp8266_nonos_v2_to_eboot_v1:
       size: 0x0fa000
 
 esp8266_nonos_v2_slot_control:
+  auto_copy_lower_to_upper_slot: true
 ```
 
 The example values demonstrate the schema; use values verified from the target
@@ -38,7 +39,9 @@ bootloader and stock images. The migration component owns the layout, so
 other components do not repeat it.
 
 `esp8266_nonos_v2_slot_control` is optional. If it is omitted, the slot-management
-routes are not compiled. If it is present, it adds these authenticated routes:
+routes are not compiled. The example enables automatic lower-to-upper relocation;
+omit `auto_copy_lower_to_upper_slot` when relocation must be started through the
+HTTP route instead. If the component is present, it adds these authenticated routes:
 
 - `GET /hub/slot_status` reports the active slot, physical flash size, and
   lower-to-upper relocation status.
@@ -68,7 +71,9 @@ hardware setup priority and reboots before Wi-Fi setup.
 
 `esp8266_nonos_v2_to_eboot_v1` exposes authenticated `GET` and `POST` requests at
 `/hub/migrate`. Upload the complete ESP8266 `firmware.factory.bin`, not an OTA
-application image. The component:
+application image. The component allows an operator or installation tool to
+start migration through this endpoint; the component does not initiate the
+final-image upload on its own. The component:
 
 1. Refuses installation unless it is executing from the upper V2 slot.
 2. Keeps the new eboot sector in RAM while writing the application from flash
@@ -114,6 +119,15 @@ packages and validates the component's ELF; the vendor profile supplies its
 flash mode, size map, frequency, entry symbol, IROM mapping, and slot limit.
 
 ## Relationship to the normal Kickstart handoff
+
+The source and destination image layouts determine the update path:
+
+| Running layout | Incoming layout | Update path |
+|---|---|---|
+| eboot V1 | eboot V1 | normal ESPHome OTA |
+| non-OS V2 | non-OS V2 | vendor-compatible V2 packaging and OTA |
+| non-OS V2 | eboot V1 | this migration component with a complete factory image |
+| eboot V1 | non-OS V2 | not implemented; requires a separate reverse-migration design |
 
 The standard Kickstart images enable ESPHome OTA and `dashboard_import`. Their
 running layout is compatible with the final ESPHome image, so Device Builder
