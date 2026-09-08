@@ -1,24 +1,62 @@
-# ESP8266 non-OS SDK transition profiles
+# ESP8266 non-OS V2 to eboot V1 transition
 
-`esp8266_nonos_v2_to_eboot_v1` builds an ESPHome application for a vendor bootloader
-that uses Espressif's paired non-OS SDK user-bin layout. It is not enabled by
-the normal ESP8266 Kickstart image.
+Some ESP8266 vendor firmwares use Espressif's paired non-OS SDK **V2 user-bin**
+layout: a vendor bootloader starts one of two application slots, while OTA
+writes the other slot. Normal ESPHome firmware uses the **eboot V1** layout.
+Moving between these layouts requires replacing the bootloader as well as the
+application.
 
-The device profile supplies the physical flash size, both slot ranges, and the
-virtual address and capacity of flash-mapped code. The component generates the
-linker script from those values. It does not assume a particular vendor or
-firmware version. The script preserves Arduino's `app_entry`, which initializes
-the continuation context and UMM heap before entering the non-OS SDK.
+The `esp8266_nonos_v2_to_eboot_v1` component builds a temporary ESPHome
+application that can run under the vendor bootloader and install the final
+eboot V1 factory image. It is optional and is not enabled in the normal
+ESP8266 Kickstart image.
+
+```text
+Vendor OTA installs a V2 Kickstart application
+    ↓
+Kickstart runs in the upper V2 slot, relocating there if needed
+    ↓
+An operator or installer uploads the final ESPHome factory image
+    ↓
+Kickstart writes the application, validates it, and writes eboot last
+    ↓
+The final firmware boots in the eboot V1 layout
+```
+
+The vendor-specific installation procedure must supply the correct image and a
+backup and recovery path. This guide covers the generic layout components and
+their authenticated HTTP interfaces.
+
+## Configure the transition profile
+
+The migration component owns all layout metadata. A device profile supplies:
+
+- the physical flash size;
+- the start and safe capacity of each V2 application slot;
+- the virtual address and capacity of flash-mapped code, called IROM.
+
+The component generates a linker script from those values. The linker script
+preserves Arduino's `app_entry`, which initializes the continuation context and
+UMM heap before entering the non-OS SDK. The component does not infer addresses
+from a vendor name or firmware version.
+
+The following fragment illustrates the schema. Use values verified from the
+target bootloader and stock images, and include an authenticated `web_server`
+in the complete configuration. The transition components are supplied by the
+[`wrobelda/esphome-kickstart`](https://github.com/wrobelda/esphome-kickstart)
+fork of [ESPHome Kickstart](https://github.com/libretiny-eu/esphome-kickstart).
 
 ```yaml
 external_components:
-  source: github://libretiny-eu/esphome-kickstart
+  source: github://wrobelda/esphome-kickstart
   components:
     - hub_api
     - esp8266_nonos_v2_to_eboot_v1
     - esp8266_nonos_v2_slot_control
 
 hub_api:
+
+ota: false
 
 esp8266_nonos_v2_to_eboot_v1:
   irom_vma: 0x40201010
@@ -34,66 +72,88 @@ esp8266_nonos_v2_slot_control:
   auto_copy_lower_to_upper_slot: true
 ```
 
-The example values demonstrate the schema; use values verified from the target
-bootloader and stock images. The migration component owns the layout, so
-other components do not repeat it.
+`hub_api` provides full-flash downloads. The optional
+`esp8266_nonos_v2_slot_control` component provides slot selection and relocation,
+using the layout already owned by the migration component. Omitting slot
+control also omits its HTTP routes.
 
-`esp8266_nonos_v2_slot_control` is optional. If it is omitted, the slot-management
-routes are not compiled. The example enables automatic lower-to-upper relocation;
-omit `auto_copy_lower_to_upper_slot` when relocation must be started through the
-HTTP route instead. If the component is present, it adds these authenticated routes:
+## Package the bridge for vendor OTA
 
-- `GET /hub/slot_status` reports the active slot, physical flash size, and
-  lower-to-upper relocation status.
-- `POST /hub/boot_other?confirm=boot-other` validates and boots the
-  other V2 image.
-- `POST /hub/copy_lower_to_upper_slot?confirm=copy-lower-to-upper-slot` copies
-  a valid running lower-slot transition image into the upper slot, validates
-  the copy, and boots it. The destination header sector is erased first and
-  written last, so an interrupted copy leaves the running lower image intact
-  and the incomplete upper image invalid. The request returns before flash
-  work begins, so validation and copying run from the normal ESPHome component
-  context rather than the ESPAsyncWebServer callback.
+The migration component builds the application but does not package its ELF as
+a V2 user-bin or implement the vendor's update protocol.
 
-The upper-slot relocation is needed when the vendor OTA mechanism installs the
-first transition image in the lower slot. A normal ESPHome factory image starts
-at flash address zero and extends through the lower application area, so it
-must be installed while the transition application executes from the upper
-slot.
+Use [`tools/build_esp8266_nonos_v2.py`](tools/build_esp8266_nonos_v2.py) to package
+and validate the ELF. The vendor installation profile must supply the flash
+mode, size map, frequency, entry symbol, IROM mapping, and slot size limit.
+The resulting V2 file is the input to vendor OTA; the final ESPHome factory
+image is the input to Kickstart's migration endpoint.
 
-Relocation must run before ESPHome initializes networking. An earlier
-implementation scheduled it after normal setup; the tested lower-slot image
-then raised `LoadProhibit` while ESPHome reconfigured Wi-Fi and lwIP state
-inherited from the vendor firmware. The working implementation relocates at
-hardware setup priority and reboots before Wi-Fi setup.
+## Move to the upper slot
+
+A normal ESPHome factory image begins at flash address zero and extends through
+the lower application area. Kickstart must therefore run from the upper V2
+slot before installing that image, so the installer does not overwrite its
+running code.
+
+With `auto_copy_lower_to_upper_slot: true`, a lower-slot bridge relocates during
+hardware setup, before ESPHome initializes Wi-Fi and lwIP networking. It then
+reboots into the upper copy. A bridge already running in the upper slot needs
+no relocation.
+
+The copy proceeds as follows:
+
+1. Validate the running lower-slot V2 image.
+2. Erase the upper image's header sector, leaving the destination invalid
+   during the copy.
+3. Copy the image, writing the destination header sector last.
+4. Validate the upper copy, select that slot, and reboot.
+
+The lower image remains intact during copying. If the copy is interrupted,
+the incomplete upper image must not be selected. Relocation can overwrite the
+remaining vendor application, so a later full-flash download is not necessarily
+a stock-firmware backup.
+
+For manual relocation, omit `auto_copy_lower_to_upper_slot` and use the copy
+route below. That request returns before flash work starts; validation and
+copying run in the normal ESPHome component context rather than in the
+ESPAsyncWebServer callback.
+
+### Slot-control routes
+
+All routes require the configured web-server authentication.
+
+| Request | Purpose |
+|---|---|
+| `GET /hub/slot_status` | Report the active slot, flash size, and relocation status |
+| `POST /hub/boot_other?confirm=boot-other` | Validate the other V2 image, select it, and reboot |
+| `POST /hub/copy_lower_to_upper_slot?confirm=copy-lower-to-upper-slot` | Copy a valid running lower-slot bridge to the upper slot, validate the copy, and boot it |
 
 ## Install the final ESPHome image
 
-`esp8266_nonos_v2_to_eboot_v1` exposes authenticated `GET` and `POST` requests at
-`/hub/migrate`. Upload the complete ESP8266 `firmware.factory.bin`, not an OTA
-application image. The component allows an operator or installation tool to
-start migration through this endpoint; the component does not initiate the
-final-image upload on its own. The component:
+The migration component exposes authenticated `GET` and `POST` requests at
+`/hub/migrate`. An operator or installation tool must supply the complete
+ESP8266 `firmware.factory.bin`; an OTA application image alone is insufficient.
+Kickstart does not start the final-image upload on its own.
 
-1. Refuses installation unless it is executing from the upper V2 slot.
-2. Keeps the new eboot sector in RAM while writing the application from flash
-   address `0x1000` upward.
-3. Validates both E9 images, segment destination ranges and overlap, segment
-   checksums, Arduino's whole-image size and CRC, and flash readback.
-4. Writes the eboot sector at address zero last, then reboots into the normal
-   ESPHome layout.
+The installer performs these steps:
 
-Set `ota: false` in the transition configuration. Configuration validation
-rejects ESPHome's standard OTA component because that OTA backend assumes the
-eboot V1 layout is already active. Enable standard ESPHome OTA in the final
-eboot V1 configuration instead.
+1. Check the physical flash size and require execution from the upper V2 slot.
+2. Hold the new eboot sector in RAM while writing the application from flash
+   address `0x1000` upward. Reject writes that would reach the running slot.
+3. Validate the bootloader and application E9 images, segment ranges and
+   overlap, segment checksums, Arduino's whole-image size and CRC, and flash
+   readback.
+4. Write the eboot sector at address zero last, then reboot into the eboot V1
+   layout.
 
-Use the same native API encryption key in the transition and final
-configurations. Home Assistant can then reuse the existing device-registry
-entry even when the final configuration changes the node and friendly names.
+Application data is written during upload; full-image validation finishes
+before the bootloader is replaced. Validation failure therefore does not imply
+that the lower application area is unchanged.
 
-The migration endpoint can also be driven without a browser. This command
-prompts for the configured web-server password:
+### Upload from the command line
+
+This command prompts for the configured web-server password. Replace
+`WEB_USERNAME` and `KICKSTART_ADDRESS` with the device's settings:
 
 ```sh
 curl --digest --user WEB_USERNAME --fail-with-body \
@@ -101,49 +161,46 @@ curl --digest --user WEB_USERNAME --fail-with-body \
   'http://KICKSTART_ADDRESS/hub/migrate?confirm=replace-vendor-bootloader'
 ```
 
-The component also intercepts `/update` and rejects normal ESPHome web OTA.
-ESPHome's captive portal otherwise enables that route even when
-`web_server.ota` is false, but its OTA backend assumes that eboot already owns
-the flash layout. Wi-Fi provisioning through the captive portal remains
-available.
+### Ordinary OTA and Home Assistant
 
-Writing the bootloader last is the same transition pattern used by SonOTA's
-Espressif2Arduino bridge. This implementation is independent because that old
-sketch is device-specific and has no license that permits copying it as a
-library.
+Set `ota: false` in the transition configuration. Configuration validation
+rejects ESPHome's standard OTA component because its backend assumes the eboot
+V1 layout is already active. The migration component also rejects `/update`,
+which the captive portal can expose even when `web_server.ota` is false. The
+captive portal still supports Wi-Fi provisioning.
 
-A power loss during the final erase or write of flash sector zero can still
-require serial recovery. Writing the bootloader last protects the much longer
-application write and validation stages; it cannot make a flash-sector update
-atomic.
+Enable standard ESPHome OTA in the final eboot V1 configuration. Use the same
+native API encryption key in the transition and final configurations so Home
+Assistant can reuse the existing device entry, even if the node and friendly
+names change.
 
-The component does not package its own ELF as a V2 image and does not implement
-a vendor's update protocol. Those operations belong to a separate image
-builder and vendor installation profile. `tools/build_esp8266_nonos_v2.py`
-packages and validates the component's ELF; the vendor profile supplies its
-flash mode, size map, frequency, entry symbol, IROM mapping, and slot limit.
+### Power-loss limits
+
+Writing the bootloader last leaves the vendor bootloader and running upper
+application intact throughout the longer application write and validation
+stages. It cannot make the final sector update atomic: a power loss during the
+erase or write of sector zero can still require serial recovery.
+
+The transition uses the application-first, bootloader-last pattern also used
+by [SonOTA's Espressif2Arduino bridge](https://github.com/mirko/SonOTA). This
+component is an independent implementation.
 
 ## Relationship to the normal Kickstart handoff
 
-The source and destination image layouts determine the update path:
+The source and destination layouts determine the update path:
 
 | Running layout | Incoming layout | Update path |
 |---|---|---|
-| eboot V1 | eboot V1 | normal ESPHome OTA |
-| non-OS V2 | non-OS V2 | vendor-compatible V2 packaging and OTA |
-| non-OS V2 | eboot V1 | this migration component with a complete factory image |
+| eboot V1 | eboot V1 | Normal ESPHome OTA |
+| non-OS V2 | non-OS V2 | Vendor-compatible V2 packaging and OTA |
+| non-OS V2 | eboot V1 | This migration component with a complete factory image |
 
-The standard Kickstart images enable ESPHome OTA and `dashboard_import`. Their
-running layout is compatible with the final ESPHome image, so Device Builder
-can import the selected configuration and install it through ordinary ESPHome
-OTA.
+Standard Kickstart images enable ESPHome OTA and `dashboard_import`. Their
+layout is compatible with the final ESPHome image, so Device Builder can import
+a configuration and install it through ordinary OTA.
 
-This transition component handles a different case: the running vendor V2
-layout is incompatible with the final eboot V1 image. Its current dedicated
-endpoint keeps the unsafe ordinary OTA backend unavailable. A future
-Kickstart-provided OTA backend should accept the normal authenticated ESPHome
-OTA request, detect the running and incoming layouts, and perform this
-migration internally; users should not need to select a special route.
-Implement and demonstrate that handoff in Kickstart first. Whether ESPHome
-core should later absorb the migration backend, or the wider Kickstart
-project, is a separate design decision for both projects.
+A non-OS V2 bridge instead requires `/hub/migrate` for the final installation.
+Transparent migration through a normal ESPHome OTA request is not implemented.
+The transition component also does not provide an eboot V1-to-non-OS V2
+restoration path; restoring vendor firmware requires the device's serial
+recovery procedure.
