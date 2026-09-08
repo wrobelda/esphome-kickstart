@@ -132,7 +132,6 @@ The source and destination image layouts determine the update path:
 | eboot V1 | eboot V1 | normal ESPHome OTA |
 | non-OS V2 | non-OS V2 | vendor-compatible V2 packaging and OTA |
 | non-OS V2 | eboot V1 | this migration component with a complete factory image |
-| eboot V1 | non-OS V2 | not implemented; requires a separate reverse-migration design |
 
 The standard Kickstart images enable ESPHome OTA and `dashboard_import`. Their
 running layout is compatible with the final ESPHome image, so Device Builder
