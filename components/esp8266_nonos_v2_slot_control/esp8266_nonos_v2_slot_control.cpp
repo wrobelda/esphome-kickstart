@@ -4,6 +4,9 @@
 
 #include <Esp.h>
 
+#include <algorithm>
+#include <cstring>
+
 extern "C" {
 #include <spi_flash.h>
 #include <user_interface.h>
@@ -54,6 +57,8 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *data, size_t length) {
 }
 
 void Esp8266NonosV2SlotControl::setup() {
+  // Relocate a lower-slot bridge before Wi-Fi starts, while the network stack
+  // is still down.
   if (this->auto_copy_lower_to_upper_slot_ && ESP.getFlashChipRealSize() == this->migration_->get_flash_size() &&
       this->current_slot_() == 0) {
     this->relocation_status_ = RelocationStatus::RUNNING;
@@ -64,6 +69,18 @@ void Esp8266NonosV2SlotControl::setup() {
   }
   this->server_->init();
   this->server_->add_handler(this);
+  // Populate the cached slot info from the main loop, not the HTTP callback.
+  this->request_slot_scan_();
+}
+
+void Esp8266NonosV2SlotControl::request_slot_scan_() {
+  if (this->slot_scan_pending_)
+    return;
+  this->slot_scan_pending_ = true;
+  this->set_timeout("slot-info-scan", 0, [this]() {
+    this->slot_scan_pending_ = false;
+    this->refresh_slot_info(true);
+  });
 }
 
 const char *Esp8266NonosV2SlotControl::relocation_status_name_(RelocationStatus status) {
@@ -213,6 +230,44 @@ bool Esp8266NonosV2SlotControl::copy_slot_(const esp8266_nonos_v2_to_eboot_v1::S
   return true;
 }
 
+void Esp8266NonosV2SlotControl::request_copy_lower_to_upper() {
+  if (ESP.getFlashChipRealSize() != this->migration_->get_flash_size()) {
+    ESP_LOGW(TAG, "Relocation refused: unexpected flash size");
+    return;
+  }
+  if (this->current_slot_() != 0) {
+    ESP_LOGW(TAG, "Relocation refused: not running from the lower slot");
+    return;
+  }
+  if (this->relocation_status_ == RelocationStatus::RUNNING) {
+    ESP_LOGW(TAG, "Relocation refused: already running");
+    return;
+  }
+  this->relocation_status_ = RelocationStatus::RUNNING;
+  this->set_timeout("copy-lower-to-upper-slot", 100, [this]() { this->perform_lower_to_upper_copy_(); });
+}
+
+void Esp8266NonosV2SlotControl::request_boot_other() {
+  if (ESP.getFlashChipRealSize() != this->migration_->get_flash_size()) {
+    ESP_LOGW(TAG, "Slot switch refused: unexpected flash size");
+    return;
+  }
+  const uint8_t current = this->current_slot_();
+  if (current > 1) {
+    ESP_LOGW(TAG, "Slot switch refused: unexpected running slot");
+    return;
+  }
+  const uint8_t other = current == 0 ? 1 : 0;
+  if (!this->validate_v2_(this->migration_->get_slot(other))) {
+    ESP_LOGW(TAG, "Slot switch refused: the other slot is not a valid V2 image");
+    return;
+  }
+  this->set_timeout("boot-other", 500, []() {
+    system_upgrade_flag_set(UPGRADE_FLAG_FINISH_VALUE);
+    system_upgrade_reboot();
+  });
+}
+
 void Esp8266NonosV2SlotControl::handleRequest(AsyncWebServerRequest *request) {
   if (request->url() == STATUS_PATH)
     this->send_status_(request);
@@ -252,6 +307,9 @@ void Esp8266NonosV2SlotControl::copy_lower_to_upper_slot_(AsyncWebServerRequest 
 }
 
 void Esp8266NonosV2SlotControl::perform_lower_to_upper_copy_(bool reboot_immediately) {
+  // Force the cached slot info to refresh after this attempt (a failure leaves
+  // the slots unchanged but the status should not stay stale).
+  this->last_slot_scan_ms_ = 0;
   const auto &lower = this->migration_->get_slot(0);
   const auto &upper = this->migration_->get_slot(1);
   uint32_t image_size;
@@ -289,6 +347,55 @@ void Esp8266NonosV2SlotControl::perform_lower_to_upper_copy_(bool reboot_immedia
   });
 }
 
+static bool read_flash_span(uint32_t offset, uint8_t *data, size_t len) {
+  while (len != 0) {
+    const uint32_t aligned = offset & ~3U;
+    uint32_t word;
+    if (!ESP.flashRead(aligned, &word, sizeof(word)))
+      return false;
+    const size_t skip = offset - aligned;
+    const size_t block = std::min(len, sizeof(word) - skip);
+    memcpy(data, reinterpret_cast<const uint8_t *>(&word) + skip, block);
+    offset += block;
+    data += block;
+    len -= block;
+  }
+  return true;
+}
+
+static uint32_t slot_entry_of(const esp8266_nonos_v2_to_eboot_v1::Slot &slot) {
+  uint8_t header[16];
+  if (!read_flash_span(slot.offset, header, sizeof(header)) || header[0] != V2_MAGIC || header[1] != V2_MARKER)
+    return 0;
+  return read_u32_le(header + 4);
+}
+
+static constexpr uint32_t SLOT_SCAN_INTERVAL_MS = 60000;
+
+void Esp8266NonosV2SlotControl::refresh_slot_info(bool force) {
+  const uint32_t now = millis();
+  if (!force && this->last_slot_scan_ms_ != 0 && now - this->last_slot_scan_ms_ < SLOT_SCAN_INTERVAL_MS)
+    return;
+  this->last_slot_scan_ms_ = now;
+  const uint8_t current = this->current_slot_();
+  if (current > 1) {
+    this->active_number_ = 0;
+    this->active_valid_ = false;
+    this->inactive_valid_ = false;
+    this->active_entry_ = 0;
+    this->inactive_entry_ = 0;
+    return;
+  }
+  const uint8_t other = current == 0 ? 1 : 0;
+  const auto &active_slot = this->migration_->get_slot(current);
+  const auto &inactive_slot = this->migration_->get_slot(other);
+  this->active_number_ = current + 1;
+  this->active_valid_ = this->validate_v2_(active_slot);
+  this->inactive_valid_ = this->validate_v2_(inactive_slot);
+  this->active_entry_ = slot_entry_of(active_slot);
+  this->inactive_entry_ = slot_entry_of(inactive_slot);
+}
+
 void Esp8266NonosV2SlotControl::send_status_(AsyncWebServerRequest *request) {
   const uint8_t current = this->current_slot_();
   if (current > 1) {
@@ -299,13 +406,20 @@ void Esp8266NonosV2SlotControl::send_status_(AsyncWebServerRequest *request) {
   const uint32_t actual_size = ESP.getFlashChipRealSize();
   const auto &current_slot = this->migration_->get_slot(current);
   const auto &other_slot = this->migration_->get_slot(other);
-  char body[384];
+  // Never scan in the HTTP callback; report the cache and request a rescan.
+  const bool scan_pending = this->last_slot_scan_ms_ == 0;
+  if (scan_pending)
+    this->request_slot_scan_();
+  char body[1024];
   snprintf(body, sizeof(body),
            "{\"flash_size\":%u,\"flash_size_ok\":%s,\"current_slot\":%u,"
-           "\"current_slot_offset\":%u,\"other_slot\":%u,\"other_slot_offset\":%u,"
-           "\"relocation_status\":\"%s\"}",
+           "\"current_slot_offset\":%u,\"current_valid\":%s,\"current_entry\":\"0x%08X\","
+           "\"other_slot\":%u,\"other_slot_offset\":%u,\"other_valid\":%s,\"other_entry\":\"0x%08X\","
+           "\"scan_pending\":%s,\"relocation_status\":\"%s\"}",
            actual_size, actual_size == this->migration_->get_flash_size() ? "true" : "false", current + 1,
-           current_slot.offset, other + 1, other_slot.offset, relocation_status_name_(this->relocation_status_));
+           current_slot.offset, this->active_valid_ ? "true" : "false", this->active_entry_, other + 1, other_slot.offset,
+           this->inactive_valid_ ? "true" : "false", this->inactive_entry_, scan_pending ? "true" : "false",
+           relocation_status_name_(this->relocation_status_));
   request->send(200, "application/json", body);
 }
 
