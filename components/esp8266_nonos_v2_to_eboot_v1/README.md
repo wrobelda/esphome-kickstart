@@ -54,9 +54,12 @@ hub_api:
 ota:
   - platform: esphome
     id: native_ota
-    password: !secret ota_password
+    # Reuses the native API key; the final firmware then updates with the
+    # same credential. A `password:` works too.
+    encryption:
 
-# Safe mode must not start OTA without the transition component's layout gate.
+# Required: safe mode would start the OTA listener before this component can
+# gate it. Configuration validation rejects a profile without this block.
 safe_mode:
   disabled: true
 
@@ -75,6 +78,7 @@ esp8266_nonos_v2_to_eboot_v1:
 
 esp8266_nonos_v2_slot_control:
   id: slot_control
+  # Optional: resolved automatically when only one migration component exists.
   migration_id: migration
   auto_copy_lower_to_upper_slot: false
 ```
@@ -82,7 +86,6 @@ esp8266_nonos_v2_slot_control:
 These components are supplied by the
 [`wrobelda/esphome-kickstart`](https://github.com/wrobelda/esphome-kickstart)
 fork of [ESPHome Kickstart](https://github.com/libretiny-eu/esphome-kickstart).
-Use a revision containing the conversion interface described here.
 
 Both automatic options default to `false`, so the bridge waits for requests.
 This leaves time to download a backup through `hub_api` at
@@ -181,13 +184,22 @@ starting while the bridge still uses V2. After conversion and reboot, the same
 configuration starts native OTA normally. Keep the OTA credentials compatible
 with the final configuration used by the installer.
 
-The current gate runs during the transition component's setup. ESPHome safe
-mode can start OTA without registering that component, so disable safe mode in
-this profile unless a separate layout guard also covers safe-mode startup.
+The gate runs during the transition component's setup. ESPHome safe mode runs
+setup with the OTA listener registered but before this component is
+constructed, so the gate cannot apply there. The component therefore requires
+`safe_mode: disabled: true` and rejects a profile without it during
+configuration validation. Safe mode has no value under the vendor layout,
+because OTA is unusable there anyway.
 
-Do not enable `captive_portal` in a transition profile. It enables a separate
-web OTA upload path that `ota_id` does not gate, even with `web_server: ota:
-false`. Configure station credentials in the build instead. A password-protected
+Do not enable `captive_portal` in a transition profile. It auto-loads the
+`web_server` OTA platform and keeps its firmware upload at `POST /update`
+reachable while the fallback AP is active, even with `web_server: ota: false`.
+That is intended ESPHome behaviour, not a bug: `web_server: ota: false`
+disables uploads for the web interface only (ESPHome pull request #9583,
+"Allow disabling OTA for web_server while keeping it enabled for
+captive_portal", merged 2025-07-16, commit `b1655b3fd4`). The `ota_id` gate
+cannot reach that auto-loaded platform because it has no configured id.
+Configure station credentials in the build instead. A password-protected
 `wifi: ap:` fallback still allows access to the recovery web interface without
 the captive portal.
 

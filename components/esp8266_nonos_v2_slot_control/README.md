@@ -13,11 +13,12 @@ to eboot. This document covers only operations within the V2 layout.
 ## Configure slot control
 
 Add this fragment to a transition profile with an authenticated `web_server`
-and a migration component whose id is `migration`:
+and an `esp8266_nonos_v2_to_eboot_v1` component:
 
 ```yaml
 esp8266_nonos_v2_slot_control:
   id: slot_control
+  # Optional: resolved automatically when only one migration component exists.
   migration_id: migration
   auto_copy_lower_to_upper_slot: false
 ```
