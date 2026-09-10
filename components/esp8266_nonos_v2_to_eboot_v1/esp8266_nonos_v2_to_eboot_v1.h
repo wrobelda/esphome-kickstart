@@ -102,6 +102,9 @@ class Esp8266NonosV2ToEbootV1 : public AsyncWebHandler, public Component {
    * Wi-Fi starts. Callable from an automation or a template button. */
   bool request_conversion();
   bool is_converted() const { return this->converted_; }
+  /** True when sector zero holds the eboot bootloader, i.e. the device is
+   * running the eboot layout rather than the vendor V2 layout. */
+  bool layout_is_eboot() const;
   uint8_t last_result() const { return this->last_result_; }
   const char *last_result_name() const { return result_name_(static_cast<Result>(this->last_result_)); }
   /** True once a conversion has been attempted (or completed) since the RTC
@@ -136,7 +139,6 @@ class Esp8266NonosV2ToEbootV1 : public AsyncWebHandler, public Component {
     bool irom;               // IROM payload is prefixed by the 8-byte patch
   };
 
-  bool layout_is_eboot_() const;
   bool load_segments_(const Slot &slot);
   bool compute_app_layout_();
   uint8_t app_byte_(uint32_t offset);

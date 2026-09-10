@@ -41,28 +41,28 @@ conversion.
 
 The component scans the images from the main loop after setup and caches the
 result, so reads do not perform a flash scan inside an HTTP callback. The YAML
-getters expose the same cached information:
+getters expose the same cached information. Because the slot fields describe
+the vendor layout, gate them on the migration component's `layout_is_eboot()`
+so one diagnostic reports the layout and, only under V2, the slot detail:
 
 ```yaml
 text_sensor:
   - platform: template
-    name: "Active slot state"
+    name: "Layout type"
     update_interval: 5min
     lambda: |-
-      char buf[96];
-      snprintf(buf, sizeof(buf), "slot %u (%s), entry 0x%08X",
-               id(slot_control)->active_slot_number(),
-               id(slot_control)->active_slot_valid() ? "valid" : "invalid",
-               id(slot_control)->active_slot_entry());
-      return { buf };
-  - platform: template
-    name: "Inactive slot state"
-    update_interval: 5min
-    lambda: |-
-      char buf[96];
-      snprintf(buf, sizeof(buf), "%s, entry 0x%08X",
-               id(slot_control)->inactive_slot_valid() ? "valid" : "invalid",
-               id(slot_control)->inactive_slot_entry());
+      char buf[160];
+      if (id(migration)->layout_is_eboot()) {
+        snprintf(buf, sizeof(buf), "eboot V1");
+      } else {
+        snprintf(buf, sizeof(buf),
+                 "V2, slot %u (%s) entry 0x%08X, other slot %s entry 0x%08X",
+                 id(slot_control)->active_slot_number(),
+                 id(slot_control)->active_slot_valid() ? "valid" : "invalid",
+                 id(slot_control)->active_slot_entry(),
+                 id(slot_control)->inactive_slot_valid() ? "valid" : "invalid",
+                 id(slot_control)->inactive_slot_entry());
+      }
       return { buf };
 ```
 

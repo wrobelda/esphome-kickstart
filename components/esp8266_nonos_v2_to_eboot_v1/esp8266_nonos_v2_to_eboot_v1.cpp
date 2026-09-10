@@ -178,7 +178,7 @@ void Esp8266NonosV2ToEbootV1::gate_native_ota_() {
   }
 }
 
-bool Esp8266NonosV2ToEbootV1::layout_is_eboot_() const {
+bool Esp8266NonosV2ToEbootV1::layout_is_eboot() const {
   // Structural check, independent of the embedded blob's exact bytes: parse
   // sector zero as an E9 image and treat it as eboot when its first segment
   // loads at or above eboot's IRAM base. The vendor boot_v1.x loads at
@@ -543,7 +543,7 @@ void Esp8266NonosV2ToEbootV1::setup() {
 
   std::copy(EBOOT_V1_SECTOR, EBOOT_V1_SECTOR + SECTOR_SIZE, this->eboot_.begin());
 
-  if (this->layout_is_eboot_()) {
+  if (this->layout_is_eboot()) {
     this->converted_ = true;
     this->store_result_(Result::ALREADY_CONVERTED);
     ESP_LOGI(TAG, "Already running the eboot V1 layout");
@@ -603,7 +603,7 @@ void Esp8266NonosV2ToEbootV1::handleRequest(AsyncWebServerRequest *request) {
     request->send(400, "application/json", "{\"error\":\"confirmation_required\"}");
     return;
   }
-  if (this->layout_is_eboot_()) {
+  if (this->layout_is_eboot()) {
     request->send(409, "application/json", "{\"error\":\"already_converted\"}");
     return;
   }
