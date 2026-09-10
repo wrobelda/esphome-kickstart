@@ -230,7 +230,18 @@ bool Esp8266NonosV2SlotControl::copy_slot_(const esp8266_nonos_v2_to_eboot_v1::S
   return true;
 }
 
+bool Esp8266NonosV2SlotControl::vendor_layout_active_() const {
+  // Slot operations only mean something under the vendor bootloader; after
+  // conversion the SDK's slot number is stale and the lower slot holds the
+  // eboot application.
+  return !this->migration_->layout_is_eboot();
+}
+
 void Esp8266NonosV2SlotControl::request_copy_lower_to_upper() {
+  if (!this->vendor_layout_active_()) {
+    ESP_LOGW(TAG, "Relocation refused: the bridge already runs the eboot layout");
+    return;
+  }
   if (ESP.getFlashChipRealSize() != this->migration_->get_flash_size()) {
     ESP_LOGW(TAG, "Relocation refused: unexpected flash size");
     return;
@@ -248,6 +259,10 @@ void Esp8266NonosV2SlotControl::request_copy_lower_to_upper() {
 }
 
 void Esp8266NonosV2SlotControl::request_boot_other() {
+  if (!this->vendor_layout_active_()) {
+    ESP_LOGW(TAG, "Slot switch refused: the bridge already runs the eboot layout");
+    return;
+  }
   if (ESP.getFlashChipRealSize() != this->migration_->get_flash_size()) {
     ESP_LOGW(TAG, "Slot switch refused: unexpected flash size");
     return;
@@ -280,6 +295,10 @@ void Esp8266NonosV2SlotControl::handleRequest(AsyncWebServerRequest *request) {
 }
 
 void Esp8266NonosV2SlotControl::copy_lower_to_upper_slot_(AsyncWebServerRequest *request) {
+  if (!this->vendor_layout_active_()) {
+    request->send(409, "application/json", "{\"error\":\"eboot_layout_active\"}");
+    return;
+  }
   if (ESP.getFlashChipRealSize() != this->migration_->get_flash_size()) {
     request->send(409, "application/json", "{\"error\":\"unexpected_flash_size\"}");
     return;
@@ -424,6 +443,10 @@ void Esp8266NonosV2SlotControl::send_status_(AsyncWebServerRequest *request) {
 }
 
 void Esp8266NonosV2SlotControl::boot_other_(AsyncWebServerRequest *request) {
+  if (!this->vendor_layout_active_()) {
+    request->send(409, "application/json", "{\"error\":\"eboot_layout_active\"}");
+    return;
+  }
   if (ESP.getFlashChipRealSize() != this->migration_->get_flash_size()) {
     request->send(409, "application/json", "{\"error\":\"unexpected_flash_size\"}");
     return;

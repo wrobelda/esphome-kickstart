@@ -97,6 +97,10 @@ Switching slots does not copy an image. If the other slot still holds a valid
 stock application, switching provides a way back to that application before
 the bootloader is replaced.
 
+Both operations, and their buttons, are refused once the bridge runs the eboot
+layout: the routes answer `409 eboot_layout_active` and the methods log a
+warning, because the vendor slot state no longer describes the device.
+
 Relocation is different: **it overwrites the upper application slot**. When
 vendor OTA installed Kickstart into the lower slot, the upper slot contains
 the remaining stock application. After relocation, both slots contain

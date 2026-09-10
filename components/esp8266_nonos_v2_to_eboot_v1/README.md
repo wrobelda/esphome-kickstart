@@ -130,7 +130,9 @@ means the bridge recognized the eboot layout on that boot. Check a reported
 failure before requesting another attempt.
 
 An automation can use `request_conversion()` instead of HTTP. The upper-slot
-requirement still applies:
+requirement still applies, and both the method and the route refuse once the
+bridge already runs the eboot layout (`409 already_converted` on the route),
+so the buttons stay harmless after conversion:
 
 ```yaml
 button:

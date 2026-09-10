@@ -620,6 +620,10 @@ void Esp8266NonosV2ToEbootV1::handleRequest(AsyncWebServerRequest *request) {
 }
 
 bool Esp8266NonosV2ToEbootV1::request_conversion() {
+  if (this->layout_is_eboot()) {
+    ESP_LOGW(TAG, "Conversion refused: already running the eboot layout");
+    return false;
+  }
   this->ensure_preferences_();
   const uint32_t requested = CONVERSION_REQUEST_MAGIC;
   if (!this->conversion_request_.save(&requested)) {

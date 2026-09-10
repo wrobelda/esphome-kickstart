@@ -53,6 +53,9 @@ class Esp8266NonosV2SlotControl : public AsyncWebHandler, public Component {
   };
 
   uint8_t current_slot_() const;
+  /** False once the converter reports the eboot layout; slot operations are
+   * refused then, because the V2 slot state no longer describes the device. */
+  bool vendor_layout_active_() const;
   bool validate_v2_(const esp8266_nonos_v2_to_eboot_v1::Slot &slot, uint32_t *image_size = nullptr) const;
   /** Schedule a slot-info rescan in the main loop. The scan reads up to 1 MiB
    * per slot, so it must not run in an ESPAsyncWebServer callback. */
