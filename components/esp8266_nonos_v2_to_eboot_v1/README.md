@@ -40,6 +40,8 @@ these values; it does not infer them from a vendor name or firmware version.
 The following fragment illustrates a 2 MiB profile. Use addresses verified
 against the target bootloader and stock images. Add the device's Wi-Fi settings
 and an authenticated `web_server` with `ota: false` to the complete profile.
+This example shares one encryption key between the native API and OTA; the
+configuration used for the first firmware upload must use that OTA key too.
 
 ```yaml
 external_components:
@@ -51,15 +53,17 @@ external_components:
 
 hub_api:
 
+api:
+  encryption:
+    key: !secret api_key
+
 ota:
   - platform: esphome
     id: native_ota
-    # Reuses the native API key; the final firmware then updates with the
-    # same credential. A `password:` works too.
+    # Use the API encryption key for OTA too.
     encryption:
 
-# Required: safe mode would start the OTA listener before this component can
-# gate it. Configuration validation rejects a profile without this block.
+# Required so safe mode cannot bypass the OTA layout check.
 safe_mode:
   disabled: true
 
@@ -78,14 +82,15 @@ esp8266_nonos_v2_to_eboot_v1:
 
 esp8266_nonos_v2_slot_control:
   id: slot_control
-  # Optional: resolved automatically when only one migration component exists.
-  migration_id: migration
   auto_copy_lower_to_upper_slot: false
 ```
 
 These components are supplied by the
 [`wrobelda/esphome-kickstart`](https://github.com/wrobelda/esphome-kickstart)
 fork of [ESPHome Kickstart](https://github.com/libretiny-eu/esphome-kickstart).
+
+Slot control finds the migration component automatically. Set its optional
+`migration_id` only when the profile needs an explicit reference.
 
 Both automatic options default to `false`, so the bridge waits for requests.
 This leaves time to download a backup through `hub_api` at
@@ -129,10 +134,8 @@ completion. After the device returns, read the result. `already_converted`
 means the bridge recognized the eboot layout on that boot. Check a reported
 failure before requesting another attempt.
 
-An automation can use `request_conversion()` instead of HTTP. The upper-slot
-requirement still applies, and both the method and the route refuse once the
-bridge already runs the eboot layout (`409 already_converted` on the route),
-so the buttons stay harmless after conversion:
+An automation can use `request_conversion()` instead of HTTP. It requires the
+upper V2 slot and refuses further conversion once eboot is running:
 
 ```yaml
 button:
@@ -186,21 +189,13 @@ starting while the bridge still uses V2. After conversion and reboot, the same
 configuration starts native OTA normally. Keep the OTA credentials compatible
 with the final configuration used by the installer.
 
-The gate runs during the transition component's setup. ESPHome safe mode runs
-setup with the OTA listener registered but before this component is
-constructed, so the gate cannot apply there. The component therefore requires
-`safe_mode: disabled: true` and rejects a profile without it during
-configuration validation. Safe mode has no value under the vendor layout,
-because OTA is unusable there anyway.
+ESPHome safe mode can start OTA without starting the transition component.
+The profile must therefore set `safe_mode: disabled: true`; configuration
+validation rejects profiles that leave it enabled.
 
-Do not enable `captive_portal` in a transition profile. It auto-loads the
-`web_server` OTA platform and keeps its firmware upload at `POST /update`
-reachable while the fallback AP is active, even with `web_server: ota: false`.
-That is intended ESPHome behaviour, not a bug: `web_server: ota: false`
-disables uploads for the web interface only (ESPHome pull request #9583,
-"Allow disabling OTA for web_server while keeping it enabled for
-captive_portal", merged 2025-07-16, commit `b1655b3fd4`). The `ota_id` gate
-cannot reach that auto-loaded platform because it has no configured id.
+Do not enable `captive_portal`: its separate OTA upload remains available even
+with `web_server: ota: false`, and `ota_id` does not gate that path. This
+behavior is documented in [ESPHome PR #9583](https://github.com/esphome/esphome/pull/9583).
 Configure station credentials in the build instead. A password-protected
 `wifi: ap:` fallback still allows access to the recovery web interface without
 the captive portal.
@@ -211,9 +206,10 @@ does not install firmware. Install only after conversion has completed, using a
 package that resolves its components and credentials outside the original
 checkout.
 
-Use the same native API encryption key in Kickstart and the final firmware if
-Home Assistant should retain its existing connection. The node and friendly
-names can change without changing that key.
+Keeping the same native API encryption key avoids re-authentication in Home
+Assistant. If the final configuration uses a different key, Home Assistant
+must obtain that key before reconnecting. API credentials and OTA credentials
+are separate unless the profile explicitly shares them, as in the example.
 
 ## Recovery limits
 

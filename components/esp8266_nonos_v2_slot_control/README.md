@@ -18,10 +18,12 @@ and an `esp8266_nonos_v2_to_eboot_v1` component:
 ```yaml
 esp8266_nonos_v2_slot_control:
   id: slot_control
-  # Optional: resolved automatically when only one migration component exists.
-  migration_id: migration
   auto_copy_lower_to_upper_slot: false
 ```
+
+The migration component is resolved automatically; set `migration_id` if an
+explicit reference is needed. The diagnostic example below uses `migration`
+as that component's id.
 
 Automatic copying is off by default. Leave it off when a caller needs to save
 a backup before changing either slot.
@@ -39,11 +41,9 @@ entry points, not firmware identity. These slot fields describe the vendor
 layout and should not be used to identify the running application after eboot
 conversion.
 
-The component scans the images from the main loop after setup and caches the
-result, so reads do not perform a flash scan inside an HTTP callback. The YAML
-getters expose the same cached information. Because the slot fields describe
-the vendor layout, gate them on the migration component's `layout_is_eboot()`
-so one diagnostic reports the layout and, only under V2, the slot detail:
+The component scans the images after setup and caches the results for HTTP
+requests and YAML getters. This example shows slot details only under V2,
+using the migration component to check the layout:
 
 ```yaml
 text_sensor:
@@ -97,14 +97,13 @@ Switching slots does not copy an image. If the other slot still holds a valid
 stock application, switching provides a way back to that application before
 the bootloader is replaced.
 
-Both operations, and their buttons, are refused once the bridge runs the eboot
-layout: the routes answer `409 eboot_layout_active` and the methods log a
-warning, because the vendor slot state no longer describes the device.
-
 Relocation is different: **it overwrites the upper application slot**. When
 vendor OTA installed Kickstart into the lower slot, the upper slot contains
 the remaining stock application. After relocation, both slots contain
 Kickstart; a later backup can no longer preserve that stock application.
+
+Once eboot is running, both operations refuse to act. HTTP requests return
+`409 eboot_layout_active`; button and automation calls log a warning.
 
 ## How relocation works
 
